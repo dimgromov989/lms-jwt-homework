@@ -1,0 +1,18 @@
+Name                                  Stmts   Miss  Cover   Missing
+-------------------------------------------------------------------
+config\__init__.py                        0      0   100%
+config\settings.py                       18      0   100%
+config\urls.py                           10      0   100%
+lms\__init__.py                           0      0   100%
+lms\admin.py                              6      0   100%
+lms\migrations\0001_initial.py           11      0   100%
+lms\migrations\0002_subscription.py       6      0   100%
+lms\migrations\__init__.py                0      0   100%
+lms\models.py                            31      2    94%   27, 40
+lms\paginators.py                         5      0   100%
+lms\permissions.py                       16      0   100%
+lms\serializers.py                       67      7    90%   29, 42-43, 50-51, 60-61
+lms\validators.py                        16      0   100%
+lms\views.py                             59      1    98%   40
+-------------------------------------------------------------------
+TOTAL                                   245     10    96%

@@ -5,6 +5,7 @@ from rest_framework import serializers
 
 from .models import Course, Lesson, User
 from .permissions import is_moderator
+from .validators import validate_youtube_links
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
@@ -61,10 +62,16 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class CourseSerializer(serializers.ModelSerializer):
+    is_subscribed = serializers.BooleanField(read_only=True, default=False)
+
     class Meta:
         model = Course
-        fields = ("id", "title", "description", "owner")
+        fields = ("id", "title", "description", "owner", "is_subscribed")
         read_only_fields = ("owner",)
+        extra_kwargs = {
+            "title": {"validators": [validate_youtube_links]},
+            "description": {"validators": [validate_youtube_links]},
+        }
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -72,6 +79,10 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = ("id", "title", "description", "course", "owner")
         read_only_fields = ("owner",)
+        extra_kwargs = {
+            "title": {"validators": [validate_youtube_links]},
+            "description": {"validators": [validate_youtube_links]},
+        }
 
     def validate_course(self, course):
         # Keep course and lesson ownership aligned, including moderator edits.
