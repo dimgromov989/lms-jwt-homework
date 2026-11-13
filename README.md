@@ -35,3 +35,22 @@ python manage.py test
 
 Для запуска вне локального окружения задайте DJANGO_DEBUG=0,
 DJANGO_SECRET_KEY и DJANGO_ALLOWED_HOSTS через переменные окружения.
+
+В названии и описании курса или урока разрешён обычный текст и ссылки
+на youtube.com и его поддомены. Списки курсов и уроков поддерживают
+`?page=2&page_size=5`. По умолчанию возвращается 10 записей, максимум 50.
+
+Подписка оформляется запросом `POST /api/courses/{id}/subscription/` без тела
+и удаляется запросом `DELETE` на тот же адрес. Повторный POST возвращает
+существующую подписку, DELETE без подписки возвращает 404. Подписаться можно
+на любой существующий курс по его ID. Права чтения и редактирования курса
+проверяются отдельно. В списке и карточке курса `is_subscribed` относится
+только к текущему пользователю.
+
+Отчёт о покрытии сохранён в `coverage.txt`. Для повторной проверки:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m coverage run --source=lms,config manage.py test
+python -m coverage report -m --omit="*/tests.py" > coverage.txt
+```
