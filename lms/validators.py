@@ -12,18 +12,24 @@ LINK = re.compile(
 )
 
 
+def validate_youtube_url(value):
+    try:
+        url = urlsplit(value, scheme="https")
+        host = (url.hostname or "").removesuffix(".")
+    except ValueError as error:
+        raise ValidationError("Укажите корректную ссылку на youtube.com.") from error
+    if (
+        url.scheme not in ("http", "https")
+        or "\\" in url.netloc
+        or not (host == "youtube.com" or host.endswith(".youtube.com"))
+    ):
+        raise ValidationError("В материалах разрешены только ссылки на youtube.com.")
+
+
 def validate_youtube_links(value):
-    """Allow plain text and links whose hostname belongs to youtube.com."""
+    """Check each web link embedded in a title or description."""
     for match in LINK.finditer(value):
         link = match.group().rstrip(".,;!:?")
         if "://" not in link and not link.startswith("//"):
             link = f"//{link}"
-        try:
-            url = urlsplit(link)
-            host = (url.hostname or "").rstrip(".")
-        except ValueError:
-            host = ""
-        if not host or url.scheme not in ("", "http", "https") or not (
-            host == "youtube.com" or host.endswith(".youtube.com")
-        ):
-            raise ValidationError("В материалах разрешены только ссылки на youtube.com.")
+        validate_youtube_url(link)

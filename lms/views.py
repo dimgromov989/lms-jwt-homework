@@ -1,7 +1,8 @@
+from django.db import transaction
 from django.db.models import Exists, OuterRef
-from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
@@ -74,22 +75,20 @@ class CourseViewSet(OwnedViewSet):
         return super().get_queryset().annotate(is_subscribed=Exists(subscribed))
 
     @action(detail=True, methods=["post", "delete"])
+    @transaction.atomic
     def subscription(self, request, pk=None):
-        course = get_object_or_404(Course, pk=pk)
+        course = get_object_or_404(Course.objects.select_for_update(), pk=pk)
         subscriptions = Subscription.objects.filter(user=request.user, course=course)
-        if request.method == "DELETE":
-            deleted, _ = subscriptions.delete()
-            if not deleted:
-                return Response({"detail": "Подписка не найдена."}, status=status.HTTP_404_NOT_FOUND)
+        deleted, _ = subscriptions.delete()
+        if deleted:
             return Response({"detail": "Подписка удалена.", "is_subscribed": False})
+        if request.method == "DELETE":
+            return Response({"detail": "Подписка не найдена."}, status=status.HTTP_404_NOT_FOUND)
 
-        _, created = Subscription.objects.get_or_create(user=request.user, course=course)
+        Subscription.objects.create(user=request.user, course=course)
         return Response(
-            {
-                "detail": "Подписка оформлена." if created else "Подписка уже существует.",
-                "is_subscribed": True,
-            },
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            {"detail": "Подписка оформлена.", "is_subscribed": True},
+            status=status.HTTP_201_CREATED,
         )
 
 

@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from .models import Course, Lesson, User
 from .permissions import is_moderator
-from .validators import validate_youtube_links
+from .validators import validate_youtube_links, validate_youtube_url
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
@@ -77,11 +77,12 @@ class CourseSerializer(serializers.ModelSerializer):
 class LessonSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lesson
-        fields = ("id", "title", "description", "course", "owner")
+        fields = ("id", "title", "description", "video_url", "course", "owner")
         read_only_fields = ("owner",)
         extra_kwargs = {
             "title": {"validators": [validate_youtube_links]},
             "description": {"validators": [validate_youtube_links]},
+            "video_url": {"validators": [validate_youtube_url]},
         }
 
     def validate_course(self, course):

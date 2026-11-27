@@ -1,5 +1,6 @@
 from django.contrib.auth.models import Group
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from rest_framework.test import APITestCase
 
 from .models import Course, Lesson, Subscription, User
@@ -47,6 +48,21 @@ class ApiTests(APITestCase):
         self.assertTrue(self.other.check_password("Longer!Green207"))
         self.assertEqual(self.client.delete(own).status_code, 204)
 
+    def test_api_index_and_profile_endpoints(self):
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(set(self.client.get("/api/").data), {"users", "courses", "lessons"})
+        profiles = self.client.get("/api/users/").data["results"]
+        self.assertEqual(len(profiles), 3)
+        self.assertEqual(set(profiles[0]), {"id", "username", "first_name"})
+        own = f"/api/users/{self.owner.pk}/"
+        self.assertEqual(self.client.get(own).data["email"], self.owner.email)
+        response = self.client.put(own, {
+            "username": self.owner.username, "email": self.owner.email,
+            "password": PASSWORD, "first_name": "Alice", "last_name": "Updated",
+        })
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self.client.get(own).data["last_name"], "Updated")
+
     def test_course_and_lesson_permissions(self):
         for endpoint, item, payload in [
             ("courses", self.course, {"title": "New"}),
@@ -93,17 +109,49 @@ class MaterialTests(APITestCase):
 
     def test_owner_can_create_read_update_and_delete_lesson(self):
         self.client.force_authenticate(self.owner)
+        video = "https://www.youtube.com/watch?v=123"
         response = self.client.post("/api/lessons/", {
             "title": "Функции", "course": self.course.pk,
-            "description": "Видео: https://www.youtube.com/watch?v=123",
+            "description": f"Видео: {video}", "video_url": video,
         })
         self.assertEqual(response.status_code, 201, response.data)
         url = f"/api/lessons/{response.data['id']}/"
         self.assertEqual(self.client.get(url).data["owner"], self.owner.pk)
+        self.assertEqual(self.client.get(url).data["video_url"], video)
         self.assertEqual(self.client.patch(url, {"title": "Функции Python"}).status_code, 200)
         self.assertEqual(self.client.get(url).data["title"], "Функции Python")
         self.assertEqual(self.client.delete(url).status_code, 204)
         self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_video_url_validation_on_create_and_update(self):
+        self.client.force_authenticate(self.owner)
+        payload = {"title": "Видео", "course": self.course.pk}
+        for value in ("https://youtu.be/123", "https://school.example/video", "обычный текст"):
+            with self.subTest(value=value):
+                response = self.client.post("/api/lessons/", {**payload, "video_url": value})
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn("video_url", response.data)
+        self.assertEqual(Lesson.objects.count(), 1)
+        video = "https://m.youtube.com/watch?v=123"
+        response = self.client.put(self.lesson_url, {**payload, "video_url": video})
+        self.assertEqual(response.status_code, 200, response.data)
+        response = self.client.patch(self.lesson_url, {"video_url": "https://example.org/"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("youtube.com", str(response.data["video_url"]))
+        self.lesson.refresh_from_db()
+        self.assertEqual(self.lesson.video_url, video)
+        response = self.client.patch(self.lesson_url, {"video_url": ""})
+        self.assertEqual(response.data["video_url"], "")
+
+    def test_invalid_description_cannot_create_course_or_lesson(self):
+        self.client.force_authenticate(self.owner)
+        for url, data in (("/api/courses/", {}), ("/api/lessons/", {"course": self.course.pk})):
+            with self.subTest(url=url):
+                response = self.client.post(url, {
+                    **data, "title": "Материал", "description": "Подробности на https://other.org/",
+                })
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("youtube.com", str(response.data["description"]))
 
     def test_validator_checks_both_fields_on_both_resources(self):
         self.client.force_authenticate(self.owner)
@@ -127,9 +175,9 @@ class MaterialTests(APITestCase):
     def test_subscription_lifecycle_and_scope(self):
         self.client.force_authenticate(self.owner)
         self.assertFalse(self.client.get(self.course_url).data["is_subscribed"])
-        self.assertEqual(self.client.post(self.subscription_url).status_code, 201)
-        self.assertEqual(self.client.post(self.subscription_url).status_code, 200)
-        self.assertEqual(Subscription.objects.count(), 1)
+        response = self.client.post(self.subscription_url)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data, {"detail": "Подписка оформлена.", "is_subscribed": True})
         self.assertTrue(self.client.get(self.course_url).data["is_subscribed"])
         self.assertTrue(self.client.get("/api/courses/").data["results"][0]["is_subscribed"])
 
@@ -138,7 +186,6 @@ class MaterialTests(APITestCase):
         self.assertEqual(self.client.delete(self.subscription_url).status_code, 404)
         self.assertEqual(self.client.post(self.subscription_url).status_code, 201)
         self.assertEqual(Subscription.objects.count(), 2)
-        self.assertEqual(self.client.post("/api/courses/99999/subscription/").status_code, 404)
 
         self.client.force_authenticate(self.moderator)
         self.assertFalse(self.client.get(self.course_url).data["is_subscribed"])
@@ -146,15 +193,46 @@ class MaterialTests(APITestCase):
         self.assertTrue(self.client.get(self.course_url).data["is_subscribed"])
 
         self.client.force_authenticate(self.owner)
-        response = self.client.delete(self.subscription_url)
+        response = self.client.post(self.subscription_url)
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.data["is_subscribed"])
+        self.assertEqual(response.data, {"detail": "Подписка удалена.", "is_subscribed": False})
         self.assertFalse(self.client.get(self.course_url).data["is_subscribed"])
+        self.assertFalse(self.client.get("/api/courses/").data["results"][0]["is_subscribed"])
         self.assertEqual(Subscription.objects.count(), 2)
+        self.assertEqual(self.client.post(self.subscription_url).status_code, 201)
+        self.assertEqual(self.client.delete(self.subscription_url).status_code, 200)
+        self.assertEqual(self.client.delete(self.subscription_url).status_code, 404)
+
+    def test_subscription_with_unknown_or_invalid_course(self):
+        self.client.force_authenticate(self.owner)
+        for course_id in (99999, "invalid"):
+            with self.subTest(course_id=course_id):
+                url = f"/api/courses/{course_id}/subscription/"
+                self.assertEqual(self.client.post(url).status_code, 404)
+                self.assertEqual(self.client.delete(url).status_code, 404)
+        self.assertFalse(Subscription.objects.exists())
+
+    def test_subscription_applies_only_to_the_selected_course(self):
+        second = Course.objects.create(title="Второй курс", owner=self.owner)
+        self.client.force_authenticate(self.owner)
+        self.client.post(self.subscription_url)
+        courses = self.client.get("/api/courses/").data["results"]
+        flags = {course["id"]: course["is_subscribed"] for course in courses}
+        self.assertEqual(flags, {self.course.pk: True, second.pk: False})
+
+    def test_database_rejects_duplicate_subscription(self):
+        Subscription.objects.create(user=self.owner, course=self.course)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Subscription.objects.create(user=self.owner, course=self.course)
+        self.assertEqual(Subscription.objects.count(), 1)
 
     def test_guest_cannot_access_materials_or_subscriptions(self):
         for url in ("/api/courses/", "/api/lessons/"):
             self.assertEqual(self.client.get(url).status_code, 401)
+            self.assertEqual(self.client.post(url).status_code, 401)
+        for url in (self.course_url, self.lesson_url):
+            for method in (self.client.get, self.client.put, self.client.patch, self.client.delete):
+                self.assertEqual(method(url).status_code, 401)
         self.assertEqual(self.client.post(self.subscription_url).status_code, 401)
         self.assertEqual(self.client.delete(self.subscription_url).status_code, 401)
 
@@ -171,6 +249,7 @@ class MaterialTests(APITestCase):
                 second = self.client.get(url, {"page": 2, "page_size": 10}).data
                 self.assertEqual(first["count"], 55)
                 self.assertEqual(len(first["results"]), 10)
+                self.assertEqual(len(self.client.get(url, {"page_size": 2}).data["results"]), 2)
                 self.assertGreater(second["results"][0]["id"], first["results"][-1]["id"])
                 self.assertEqual(len(self.client.get(url, {"page_size": 100}).data["results"]), 50)
                 self.assertEqual(self.client.get(url, {"page": 100}).status_code, 404)

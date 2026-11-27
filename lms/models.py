@@ -30,6 +30,7 @@ class Course(models.Model):
 class Lesson(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    video_url = models.URLField(blank=True, max_length=2048)
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="lessons")
 
