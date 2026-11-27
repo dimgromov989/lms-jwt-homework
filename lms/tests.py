@@ -50,7 +50,7 @@ class ApiTests(APITestCase):
 
     def test_api_index_and_profile_endpoints(self):
         self.client.force_authenticate(self.owner)
-        self.assertEqual(set(self.client.get("/api/").data), {"users", "courses", "lessons"})
+        self.assertEqual(set(self.client.get("/api/").data), {"users", "courses", "lessons", "payments"})
         profiles = self.client.get("/api/users/").data["results"]
         self.assertEqual(len(profiles), 3)
         self.assertEqual(set(profiles[0]), {"id", "username", "first_name"})
