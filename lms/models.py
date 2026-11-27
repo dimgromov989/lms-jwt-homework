@@ -30,6 +30,7 @@ class Course(models.Model):
 class Lesson(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    video_url = models.URLField(blank=True, max_length=2048)
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="lessons")
 
@@ -38,3 +39,13 @@ class Lesson(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class Subscription(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscriptions")
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="subscriptions")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("user", "course"), name="lms_unique_course_subscription"),
+        ]

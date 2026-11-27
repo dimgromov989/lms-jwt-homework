@@ -1,7 +1,13 @@
-from rest_framework import viewsets
+from django.db import transaction
+from django.db.models import Exists, OuterRef
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 
-from .models import Course, Lesson, User
+from .models import Course, Lesson, Subscription, User
+from .paginators import MaterialPagination
 from .permissions import NotModerator, OwnerOnly, OwnerOrModerator, OwnProfile, is_moderator
 from .serializers import CourseSerializer, LessonSerializer, PublicProfileSerializer, UserSerializer
 
@@ -39,6 +45,7 @@ class UserViewSet(ActionPermissionsMixin, viewsets.ModelViewSet):
 
 
 class OwnedViewSet(ActionPermissionsMixin, viewsets.ModelViewSet):
+    pagination_class = MaterialPagination
     action_permissions = {
         "list": (IsAuthenticated,),
         "retrieve": (IsAuthenticated, OwnerOrModerator),
@@ -61,6 +68,28 @@ class OwnedViewSet(ActionPermissionsMixin, viewsets.ModelViewSet):
 class CourseViewSet(OwnedViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
+    action_permissions = {**OwnedViewSet.action_permissions, "subscription": (IsAuthenticated,)}
+
+    def get_queryset(self):
+        subscribed = Subscription.objects.filter(user=self.request.user, course_id=OuterRef("pk"))
+        return super().get_queryset().annotate(is_subscribed=Exists(subscribed))
+
+    @action(detail=True, methods=["post", "delete"])
+    @transaction.atomic
+    def subscription(self, request, pk=None):
+        course = get_object_or_404(Course.objects.select_for_update(), pk=pk)
+        subscriptions = Subscription.objects.filter(user=request.user, course=course)
+        deleted, _ = subscriptions.delete()
+        if deleted:
+            return Response({"detail": "Подписка удалена.", "is_subscribed": False})
+        if request.method == "DELETE":
+            return Response({"detail": "Подписка не найдена."}, status=status.HTTP_404_NOT_FOUND)
+
+        Subscription.objects.create(user=request.user, course=course)
+        return Response(
+            {"detail": "Подписка оформлена.", "is_subscribed": True},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LessonViewSet(OwnedViewSet):

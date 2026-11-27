@@ -31,7 +31,12 @@ TEMPLATES = [{
         "django.contrib.messages.context_processors.messages",
     ]},
 }]
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+DATABASES = {"default": {
+    "ENGINE": "django.db.backends.sqlite3",
+    "NAME": BASE_DIR / "db.sqlite3",
+    # Reserve the SQLite write lock before reading the subscription to toggle.
+    "OPTIONS": {"transaction_mode": "IMMEDIATE"},
+}}
 AUTH_USER_MODEL = "lms.User"
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": f"django.contrib.auth.password_validation.{validator}"}

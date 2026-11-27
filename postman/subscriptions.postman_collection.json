@@ -1,0 +1,245 @@
+{
+  "info": {
+    "name": "LMS — подписка на курс",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Запустите всю коллекцию на локальном LMS. Она регистрирует временного пользователя, проверяет подписку и удаляет созданный профиль вместе с его курсом."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Зарегистрировать временного пользователя",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/users/",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"email\": \"{{username}}@example.com\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.variables.set('username', 'postman-' + pm.variables.replaceIn('{{$guid}}'));",
+              "pm.variables.set('password', pm.variables.replaceIn('{{$guid}}'));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.variables.set('userId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Получить JWT",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/token/",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.variables.set('accessToken', pm.response.json().access);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Создать курс",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/courses/",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Тест подписки\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test('Признак подписки', () => pm.expect(pm.response.json().is_subscribed).to.equal(false));",
+              "pm.variables.set('courseId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Оформить подписку",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/courses/{{courseId}}/subscription/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test('Признак подписки', () => pm.expect(pm.response.json().is_subscribed).to.equal(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Прочитать карточку курса",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/courses/{{courseId}}/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Признак подписки', () => pm.expect(pm.response.json().is_subscribed).to.equal(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Проверить список курсов",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/courses/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Созданный курс помечен подписанным', () => {",
+              "    const course = pm.response.json().results.find(item => item.id === Number(pm.variables.get('courseId')));",
+              "    pm.expect(course.is_subscribed).to.equal(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Снять подписку повторным POST",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/courses/{{courseId}}/subscription/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Признак подписки', () => pm.expect(pm.response.json().is_subscribed).to.equal(false));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Проверить карточку после отписки",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/courses/{{courseId}}/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Признак подписки', () => pm.expect(pm.response.json().is_subscribed).to.equal(false));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Удалить временного пользователя и его курс",
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/users/{{userId}}/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
