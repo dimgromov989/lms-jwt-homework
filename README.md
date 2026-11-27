@@ -1,5 +1,59 @@
 # LMS API: JWT и права доступа
 
+## Документация и оплата курсов
+
+После установки зависимостей и применения миграций доступны
+Swagger UI по `/api/docs/`, ReDoc по `/api/redoc/` и OpenAPI по `/api/schema/`.
+Для защищённых запросов в Swagger нажмите Authorize и введите JWT access.
+Схема описывает параметры, тела запросов, ответы и ошибки.
+
+Цена курса задаётся владельцем через поле `price`, например `125.49`.
+Старые курсы имеют цену 0, перед оплатой установите положительную цену.
+Валюта задаётся на сервере, по умолчанию USD. При передаче в Stripe сумма
+умножается на 100, так что 125.49 превращается в 12549 центов.
+
+Настройте переменные окружения по образцу `.env.example`. Настройки читаются
+из окружения процесса. Для PowerShell можно задать их так.
+
+```powershell
+$env:STRIPE_SECRET_KEY = "sk_test_ваш_тестовый_ключ"
+$env:STRIPE_CURRENCY = "usd"
+$env:STRIPE_SUCCESS_URL = "http://localhost:8000/api/docs/?session_id={CHECKOUT_SESSION_ID}"
+$env:STRIPE_CANCEL_URL = "http://localhost:8000/api/docs/"
+python manage.py runserver
+```
+
+Ключ получите в тестовом окружении Stripe. Данные настоящих карт для учебной проверки
+не нужны. После открытия checkout_url используйте тестовую карту из документации Stripe.
+URL возврата задаются сервером и должны вести на вашу страницу результата.
+В примере они ведут на Swagger UI.
+
+| Запрос | Результат |
+| --- | --- |
+| POST /api/payments/ | Покупка курса, тело `{"course": 1, "request_id": "UUID"}` |
+| GET /api/payments/ | Пагинированный список своих платежей |
+| GET /api/payments/{id}/ | Сохранённые данные своего платежа |
+| POST /api/payments/{id}/sync/ | Получение актуального статуса из Stripe и сохранение в модели |
+
+POST покупки возвращает данные платежа и `checkout_url`. Запись хранит пользователя,
+курс, снимок цены и названия, валюту, ID продукта, цены и сессии Stripe, ссылки
+и статусы. Цена и владелец платежа определяются сервером. Оплатить может любой
+авторизованный пользователь по ID курса.
+
+Повторите тот же `request_id` после сетевой ошибки, чтобы продолжить покупку.
+Для новой покупки используйте новый UUID. Если UUID не передан, он генерируется сервером.
+При ошибке Stripe возвращается 503. Уже созданные этапы сохраняются вместе с
+`payment_id` и `request_id` для повтора. Платежи доступны только создавшему их пользователю.
+Пользователь и курс с платежами защищены от удаления, API возвращает 400.
+
+Статус сессии может быть `open`, `complete` или `expired`, статус оплаты —
+`unpaid`, `paid` или `no_payment_required`. До создания сессии статус записи
+`pending`, после сбоя создания — `failed`. Синхронизация выполняется явным запросом
+к `sync/`. Переход на success_url сам по себе не подтверждает оплату.
+
+Интеграционные тесты Stripe используют моки SDK. Для проверки в тестовом Stripe
+задайте свой ключ и пройдите Checkout по возвращённой ссылке.
+
 ```powershell
 python -m pip install -r requirements.txt
 python manage.py migrate
@@ -61,5 +115,5 @@ DJANGO_SECRET_KEY и DJANGO_ALLOWED_HOSTS через переменные окр
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m coverage run --source=lms,config manage.py test
-python -m coverage report -m --omit="*/tests.py" > coverage.txt
+python -m coverage report -m --omit="*/test*.py" > coverage.txt
 ```

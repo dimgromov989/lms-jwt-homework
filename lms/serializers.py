@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
-from .models import Course, Lesson, User
+from .models import Course, Lesson, Payment, User
 from .permissions import is_moderator
 from .validators import validate_youtube_links, validate_youtube_url
 
@@ -66,7 +66,7 @@ class CourseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Course
-        fields = ("id", "title", "description", "owner", "is_subscribed")
+        fields = ("id", "title", "description", "price", "owner", "is_subscribed")
         read_only_fields = ("owner",)
         extra_kwargs = {
             "title": {"validators": [validate_youtube_links]},
@@ -92,3 +92,24 @@ class LessonSerializer(serializers.ModelSerializer):
         if course.owner_id != owner_id:
             raise serializers.ValidationError("Курс должен принадлежать владельцу урока.")
         return course
+
+
+class PaymentCreateSerializer(serializers.Serializer):
+    course = serializers.PrimaryKeyRelatedField(queryset=Course.objects.all())
+    request_id = serializers.UUIDField(required=False, help_text="UUID покупки. Повторите его для безопасного повтора запроса.")
+
+    def validate_course(self, course):
+        if course.price <= 0:
+            raise serializers.ValidationError("Для оплаты цена курса должна быть больше нуля.")
+        return course
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = (
+            "id", "user", "course", "request_id", "amount", "currency", "product_name",
+            "stripe_product_id", "stripe_price_id", "stripe_session_id", "checkout_url",
+            "success_url", "cancel_url", "status", "payment_status", "created_at",
+        )
+        read_only_fields = fields
